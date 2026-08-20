@@ -18,7 +18,7 @@ The system will combine AI/NLP analysis with rule-based scam indicators to gener
 | Name | GitHub Username | Role |
 |---|---|---|
 | Sai Santhana Lakshmi S | saisanthanalakshmi007 | Team Leader |
-| M Preethi | ADD_PREETHI_USERNAME | Team Member |
+| M Preethi | preethibinita | Team Member |
 
 ## Proposed Features
 
