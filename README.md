@@ -157,6 +157,18 @@ JobShield AI considers potential indicators such as:
 
 ---
 
+## AI Use Disclosure
+
+JobShield AI uses the Google Gemini API for contextual analysis of submitted job postings and recruitment messages.
+
+Gemini assists the system in:
+- Identifying potential recruitment scam indicators
+- Generating risk assessments
+- Explaining suspicious signals
+- Providing safety recommendations
+
+The AI output is intended as decision-support and awareness guidance. JobShield AI does not claim with certainty that a job posting is fraudulent. The assessment is based only on the information provided by the user.
+
 ## Technical Architecture
 
 ```text
@@ -185,3 +197,22 @@ Red Flags + AI Assessment
 Safety Recommendations
   ↓
 User
+
+## Testing
+
+Testing was performed using different recruitment messages to verify:
+
+- High-risk scam detection
+- Suspicious recruitment patterns
+- Low-risk job postings
+- Red-flag identification
+- AI contextual analysis
+- Risk score generation
+- Safety recommendations
+- Frontend-backend communication
+
+Detailed test cases are documented in [TESTING.md](TESTING.md).
+
+## Live Demo
+
+[JobShield AI — Live Application](https://job-shield-ai-mu.vercel.app/)
