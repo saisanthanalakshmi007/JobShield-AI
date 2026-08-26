@@ -200,7 +200,9 @@ User
 
 ---
 
-## **Testing**
+## Testing & Live Demo
+
+### Testing
 
 Testing was performed using different recruitment messages to verify:
 
@@ -215,8 +217,8 @@ Testing was performed using different recruitment messages to verify:
 
 Detailed test cases are documented in [TESTING.md](TESTING.md).
 
----
+### Live Demo
 
-## **Live Demo**
+[**JobShield AI — Live Application**](https://job-shield-ai-mu.vercel.app/)
 
-[JobShield AI — Live Application](https://job-shield-ai-mu.vercel.app/)
+The live application provides the deployed JobShield AI frontend and connects to the deployed FastAPI backend for recruitment scam analysis.
