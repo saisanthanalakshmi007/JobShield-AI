@@ -200,7 +200,7 @@ User
 
 ---
 
-## Testing
+**## Testing**
 
 Testing was performed using different recruitment messages to verify:
 
@@ -217,6 +217,6 @@ Detailed test cases are documented in [TESTING.md](TESTING.md).
 
 ---
 
-## Live Demo
+**## Live Demo**
 
 [JobShield AI — Live Application](https://job-shield-ai-mu.vercel.app/)
