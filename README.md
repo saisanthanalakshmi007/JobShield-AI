@@ -30,7 +30,7 @@ It analyzes job postings and recruitment messages to identify suspicious pattern
 | Name | GitHub Username | Role |
 |---|---|---|
 | **Sai Santhana Lakshmi S** | [`saisanthanalakshmi007`](https://github.com/saisanthanalakshmi007) | Team Leader — Project Development & Integration |
-| **M Preethi** | [`preethibinita`](https://github.com/preethibinita) | Team Member — Documentation, Testing & Development Support |
+| **M Preethi** | [`MPreethi2007`](https://github.com/preethibinita) | Team Member — Documentation, Testing & Development Support |
 
 ---
 
