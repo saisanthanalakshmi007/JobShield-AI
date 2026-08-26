@@ -14,7 +14,7 @@ It analyzes job postings and recruitment messages to identify suspicious pattern
 
 **Theme:** Cybersecurity, Blockchain & Digital Trust
 
-**Problem Statement:**  
+**Problem Statement:**
 **Omni_CyberTech_10 — Identifying Fake Job Postings and Recruitment Scams**
 
 **Project:** JobShield AI
@@ -162,12 +162,15 @@ JobShield AI considers potential indicators such as:
 JobShield AI uses the Google Gemini API for contextual analysis of submitted job postings and recruitment messages.
 
 Gemini assists the system in:
+
 - Identifying potential recruitment scam indicators
 - Generating risk assessments
 - Explaining suspicious signals
 - Providing safety recommendations
 
 The AI output is intended as decision-support and awareness guidance. JobShield AI does not claim with certainty that a job posting is fraudulent. The assessment is based only on the information provided by the user.
+
+---
 
 ## Technical Architecture
 
@@ -197,6 +200,7 @@ Red Flags + AI Assessment
 Safety Recommendations
   ↓
 User
+```
 
 ---
 
