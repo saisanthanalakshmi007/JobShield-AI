@@ -198,6 +198,8 @@ Safety Recommendations
   ↓
 User
 
+---
+
 ## Testing
 
 Testing was performed using different recruitment messages to verify:
@@ -212,6 +214,8 @@ Testing was performed using different recruitment messages to verify:
 - Frontend-backend communication
 
 Detailed test cases are documented in [TESTING.md](TESTING.md).
+
+---
 
 ## Live Demo
 
