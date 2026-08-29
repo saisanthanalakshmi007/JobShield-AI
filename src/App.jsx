@@ -237,15 +237,18 @@ function parseGeminiAnalysis(rawAnalysis) {
 }
 
 async function analyzeWithAI(text) {
-  const response = await fetch("https://jobshield-ai-fdz9.onrender.com/analyze", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      text,
-    }),
-  });
+  const response = await fetch(
+    "http://127.0.0.1:8000/analyze",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        text,
+      }),
+    }
+  );
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
@@ -258,7 +261,9 @@ async function analyzeWithAI(text) {
   const data = await response.json();
 
   if (!data.success) {
-    throw new Error("Gemini analysis was unsuccessful.");
+    throw new Error(
+      data.message || "Gemini analysis was unsuccessful."
+    );
   }
 
   const parsed = parseGeminiAnalysis(data.analysis);
@@ -287,10 +292,63 @@ function App() {
     setError("");
 
     try {
+      // Always perform rule-based analysis first.
       const ruleAnalysis = analyzeJobPosting(jobText);
 
-      const aiAnalysis = await analyzeWithAI(jobText);
+      let aiAnalysis = null;
+      let aiAvailable = true;
 
+      // Try Gemini analysis.
+      try {
+        aiAnalysis = await analyzeWithAI(jobText);
+      } catch (aiError) {
+        console.warn("Gemini analysis unavailable:", aiError);
+        aiAvailable = false;
+      }
+
+      /*
+       * FALLBACK MODE
+       * If Gemini is unavailable, continue with the rule-based
+       * assessment instead of showing a complete application error.
+       */
+      if (!aiAnalysis) {
+        const fallbackFlags = ruleAnalysis.redFlags.map((flag) => ({
+          name: flag.name,
+          severity: flag.severity,
+          explanation: flag.explanation,
+          source: "Rule-based",
+        }));
+
+        let fallbackRecommendation =
+          "Verify the employer independently before proceeding.";
+
+        if (ruleAnalysis.score >= 60) {
+          fallbackRecommendation =
+            "Do not make payments or share sensitive information. Verify the employer and recruitment process independently before proceeding.";
+        } else if (ruleAnalysis.score >= 30) {
+          fallbackRecommendation =
+            "Proceed with caution. Verify the employer, recruiter identity, job details, and communication channels before proceeding.";
+        } else {
+          fallbackRecommendation =
+            "No major scam indicators were detected by the rule-based analysis. Independently verify the employer before proceeding.";
+        }
+
+        setResult({
+          score: ruleAnalysis.score,
+          level: ruleAnalysis.level,
+          redFlags: fallbackFlags,
+          recommendation: fallbackRecommendation,
+          summary:
+            "Gemini AI analysis is temporarily unavailable. This assessment is based on JobShield AI's rule-based scam detection.",
+          aiScore: null,
+          ruleScore: ruleAnalysis.score,
+          aiAvailable: false,
+        });
+
+        return;
+      }
+
+      // Normal combined AI + rule-based analysis.
       const aiScore = Number(aiAnalysis.risk_score) || 0;
 
       const combinedScore = Math.round(
@@ -356,19 +414,18 @@ function App() {
         level: combinedLevel,
         redFlags: combinedFlags,
         recommendation: finalRecommendation,
-
         summary:
           aiAnalysis.summary ||
           "Gemini AI analyzed this recruitment message for contextual scam indicators.",
-
         aiScore,
         ruleScore: ruleAnalysis.score,
+        aiAvailable,
       });
     } catch (error) {
       console.error("Analysis failed:", error);
 
       setError(
-        "Unable to connect to the AI analysis service. Please make sure the JobShield FastAPI backend is running on port 8000."
+        "Unable to complete the analysis. Please try again."
       );
     } finally {
       setAnalyzing(false);
@@ -496,12 +553,25 @@ function App() {
                 {result.ruleScore}/100
                 <br />
 
-                <strong>Gemini AI risk score:</strong>{" "}
-                {result.aiScore}/100
-                <br />
+                {result.aiAvailable !== false ? (
+                  <>
+                    <strong>Gemini AI risk score:</strong>{" "}
+                    {result.aiScore}/100
+                    <br />
 
-                <strong>Combined score:</strong>{" "}
-                {result.score}/100
+                    <strong>Combined score:</strong>{" "}
+                    {result.score}/100
+                  </>
+                ) : (
+                  <>
+                    <strong>Gemini AI:</strong>{" "}
+                    Temporarily unavailable
+                    <br />
+
+                    <strong>Final score:</strong>{" "}
+                    {result.score}/100
+                  </>
+                )}
               </div>
             </div>
 
@@ -510,9 +580,19 @@ function App() {
               <h4>🔧 Detection Sources</h4>
 
               <div className="no-flags">
-                <p>✓ Rule-Based Scam Detection</p>
-                <p>✓ Gemini AI Contextual Analysis</p>
-                <p>✓ Combined Risk Assessment</p>
+                {result.aiAvailable !== false ? (
+                  <>
+                    <p>✓ Rule-Based Scam Detection</p>
+                    <p>✓ Gemini AI Contextual Analysis</p>
+                    <p>✓ Combined Risk Assessment</p>
+                  </>
+                ) : (
+                  <>
+                    <p>✓ Rule-Based Scam Detection</p>
+                    <p>⚠ Gemini AI Temporarily Unavailable</p>
+                    <p>✓ Rule-Based Risk Assessment</p>
+                  </>
+                )}
               </div>
             </div>
 

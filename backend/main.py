@@ -9,28 +9,36 @@ load_dotenv()
 
 API_KEY = os.getenv("GEMINI_API_KEY")
 
-if not API_KEY:
-    raise RuntimeError("GEMINI_API_KEY is not configured in the .env file.")
-
-client = genai.Client(api_key=API_KEY)
-
 app = FastAPI(
     title="JobShield AI API",
     description="AI-powered recruitment scam analysis backend",
-    version="1.0.0",
+    version="1.1.0",
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173","https://job-shield-ai-mu.vercel.app",],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://job-shield-ai-mu.vercel.app",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
 class JobRequest(BaseModel):
     text: str
+
+
+client = None
+
+if API_KEY:
+    try:
+        client = genai.Client(api_key=API_KEY)
+    except Exception as error:
+        print(f"Gemini client initialization failed: {error}")
+        client = None
 
 
 @app.get("/")
@@ -38,6 +46,7 @@ def root():
     return {
         "message": "JobShield AI backend is running",
         "status": "ok",
+        "ai_available": client is not None,
     }
 
 
@@ -48,6 +57,18 @@ def analyze_job(request: JobRequest):
             status_code=400,
             detail="Job posting text cannot be empty.",
         )
+
+    # Gemini unavailable → return controlled fallback response
+    if client is None:
+        return {
+            "success": False,
+            "ai_available": False,
+            "analysis": None,
+            "message": (
+                "Gemini AI is currently unavailable. "
+                "The application can continue using rule-based analysis."
+            ),
+        }
 
     prompt = f"""
 You are the AI analysis component of JobShield AI,
@@ -106,11 +127,19 @@ Important:
 
         return {
             "success": True,
+            "ai_available": True,
             "analysis": response.text,
         }
 
     except Exception as error:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Gemini analysis failed: {str(error)}",
-        )
+        print(f"Gemini analysis failed: {error}")
+
+        return {
+            "success": False,
+            "ai_available": False,
+            "analysis": None,
+            "message": (
+                "Gemini AI analysis is temporarily unavailable. "
+                "The application can continue using its rule-based assessment."
+            ),
+        }
