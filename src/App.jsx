@@ -186,10 +186,47 @@ function analyzeJobPosting(text) {
   let score = 0;
   const detectedRules = [];
 
+  // Phrases that explicitly deny a payment/fee requirement.
+  const paymentNegations = [
+    "no application fee",
+    "no registration fee",
+    "no processing fee",
+    "no joining fee",
+    "no training fee",
+    "no security deposit",
+    "no security fee",
+    "no payment required",
+    "no upfront payment",
+    "no upfront fee",
+    "does not require payment",
+    "doesn't require payment",
+    "does not require a payment",
+    "doesn't require a payment",
+    "there is no fee",
+    "there are no fees",
+    "no fee is required",
+    "no fees are required",
+    "without any fee",
+    "without a fee",
+    "without payment",
+  ];
+
   scamRules.forEach((rule) => {
-    const matchedKeyword = rule.keywords.some((keyword) =>
+    let matchedKeyword = rule.keywords.some((keyword) =>
       normalizedText.includes(keyword)
     );
+
+    // Prevent the payment rule from triggering when the posting
+    // explicitly says that no payment or fee is required.
+    if (rule.name === "Upfront payment request" && matchedKeyword) {
+      const hasPaymentNegation = paymentNegations.some((phrase) =>
+        normalizedText.includes(phrase)
+      );
+
+      if (hasPaymentNegation) {
+        matchedKeyword = false;
+      }
+    }
 
     if (matchedKeyword) {
       score += rule.points;
