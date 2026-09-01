@@ -1,765 +1,915 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import "./App.css";
 
-const scamRules = [
-  {
-    name: "Upfront payment request",
-    keywords: [
-      "registration fee",
-      "registration fees",
-      "processing fee",
-      "processing fees",
-      "application fee",
-      "application fees",
-      "joining fee",
-      "joining fees",
-      "training fee",
-      "training fees",
-      "security deposit",
-      "security fee",
-      "pay a fee",
-      "pay fee",
-      "pay ₹",
-      "pay rs",
-      "send money",
-      "make a payment",
-      "payment required",
-      "deposit money",
-    ],
-    points: 30,
-    severity: "high",
-    explanation:
-      "The posting appears to request money before or during recruitment.",
-  },
-  {
-    name: "Sensitive information request",
-    keywords: [
-      "otp",
-      "one time password",
-      "bank account",
-      "bank details",
-      "bank information",
-      "credit card",
-      "debit card",
-      "cvv",
-      "atm pin",
-      "pin number",
-      "password",
-      "aadhaar",
-      "aadhar",
-      "pan card",
-      "passport details",
-    ],
-    points: 25,
-    severity: "high",
-    explanation:
-      "The posting may be requesting sensitive personal or financial information.",
-  },
-  {
-    name: "Unrealistic earning claim",
-    keywords: [
-      "earn ₹",
-      "earn rs",
-      "earn 50000",
-      "earn 100000",
-      "earn 1 lakh",
-      "earn 2 lakh",
-      "guaranteed income",
-      "guaranteed salary",
-      "guaranteed earnings",
-      "easy money",
-      "huge income",
-      "unlimited income",
-      "earn money easily",
-      "make money easily",
-      "daily income",
-      "weekly income",
-    ],
-    points: 20,
-    severity: "medium",
-    explanation:
-      "The posting contains claims about unusually easy or guaranteed earnings.",
-  },
-  {
-    name: "Urgency or pressure",
-    keywords: [
-      "act now",
-      "apply immediately",
-      "limited vacancies",
-      "limited vacancy",
-      "limited seats",
-      "urgent",
-      "immediate joining",
-      "join immediately",
-      "join today",
-      "last chance",
-      "respond immediately",
-      "offer expires",
-      "apply today",
-      "hurry",
-    ],
-    points: 10,
-    severity: "medium",
-    explanation:
-      "Pressure or urgency can be used to prevent applicants from properly verifying an offer.",
-  },
-  {
-    name: "Guaranteed employment",
-    keywords: [
-      "guaranteed job",
-      "100% job guarantee",
-      "100% job guaranteed",
-      "job guaranteed",
-      "job guarantee",
-      "no interview",
-      "no interview required",
-      "selected without interview",
-      "job without interview",
-      "guaranteed placement",
-    ],
-    points: 15,
-    severity: "high",
-    explanation:
-      "Guaranteed employment claims or bypassing normal recruitment processes can be suspicious.",
-  },
-  {
-    name: "Suspicious recruitment channel",
-    keywords: [
-      "contact only on whatsapp",
-      "contact us only on whatsapp",
-      "whatsapp only",
-      "whatsapp recruitment",
-      "contact only via whatsapp",
-      "contact us via whatsapp",
-      "message on whatsapp",
-      "contact only on telegram",
-      "telegram only",
-      "telegram recruitment",
-      "contact us via telegram",
-      "contact me on telegram",
-      "message me on telegram",
-      "dm me",
-      "contact through whatsapp",
-    ],
-    points: 10,
-    severity: "medium",
-    explanation:
-      "Recruitment that relies heavily on informal messaging channels may require additional verification.",
-  },
-  {
-    name: "Unusual recruitment process",
-    keywords: [
-      "selected without interview",
-      "no interview required",
-      "no qualification required",
-      "no experience required",
-      "instant selection",
-      "instant job",
-      "immediate selection",
-      "selected immediately",
-    ],
-    points: 10,
-    severity: "medium",
-    explanation:
-      "An unusually easy or immediate recruitment process may require additional verification.",
-  },
-  {
-    name: "Suspicious contact information",
-    keywords: [
-      "gmail.com",
-      "yahoo.com",
-      "outlook.com",
-      "protonmail",
-      "contact me personally",
-      "personal email",
-    ],
-    points: 5,
-    severity: "medium",
-    explanation:
-      "The contact information may not clearly identify an official company communication channel.",
-  },
+// =====================================================
+// CONFIG
+// =====================================================
+const BACKEND_URL = "https://jobshield-ai-fdz9.onrender.com/analyze";
+
+// =====================================================
+// HELPERS
+// =====================================================
+
+function clampScore(n) {
+  const num = Number(n);
+  if (Number.isNaN(num)) return 0;
+  return Math.min(100, Math.max(0, Math.round(num)));
+}
+
+function getRiskLevel(score) {
+  if (score >= 60) return "High Risk";
+  if (score >= 30) return "Suspicious";
+  return "Low Risk";
+}
+
+function riskLevelClass(level) {
+  if (level === "High Risk") return "risk-high";
+  if (level === "Suspicious") return "risk-suspicious";
+  return "risk-low";
+}
+
+function severityClass(severity) {
+  const s = (severity || "").toLowerCase();
+  if (s === "high") return "severity-high";
+  if (s === "medium") return "severity-medium";
+  return "severity-low";
+}
+
+// Split a block of text into individual sentences so we can check
+// each one on its own (this is how we tell a "no fee" sentence
+// apart from a real payment-request sentence).
+function splitIntoSentences(text) {
+  const normalized = text.replace(/\r\n/g, "\n").split(/\n+/).join(". ");
+  const parts = normalized.split(/(?<=[.!?])\s+/);
+  return parts.map((p) => p.trim()).filter((p) => p.length > 0);
+}
+
+// =====================================================
+// RULE ENGINE — INDIVIDUAL DETECTORS
+// Each detector looks sentence-by-sentence and returns
+// { matched: boolean, evidence: string }
+// =====================================================
+
+// ---- 1. Upfront payment request (with negation awareness) ----
+const PAYMENT_NEGATION_PHRASES = [
+  "no application fee",
+  "no registration fee",
+  "no processing fee",
+  "no joining fee",
+  "no training fee",
+  "no security fee",
+  "no security deposit",
+  "no verification fee",
+  "no verification deposit",
+  "no onboarding fee",
+  "no onboarding deposit",
+  "no confirmation fee",
+  "no payment required",
+  "no upfront payment",
+  "no upfront fee",
+  "there is no fee",
+  "there are no fees",
+  "no fee is required",
+  "no fees are required",
+  "without any fee",
+  "without a fee",
+  "without payment",
+  "payment is not required",
+  "does not require payment",
+  "doesn't require payment",
+  "do not require payment",
+  "don't require payment",
 ];
 
-function analyzeJobPosting(text) {
-  const normalizedText = text.toLowerCase();
+const PAYMENT_TRIGGER_REGEXES = [
+  /\bpay\b[^.!?]{0,40}(₹|rs\.?|inr)\s?[\d,]+/i,
+  /(₹|rs\.?|inr)\s?[\d,]+[^.!?]{0,40}\b(fee|deposit|payment|charge)\b/i,
+  /\bsend\b[^.!?]{0,40}(₹|rs\.?|inr)\s?[\d,]+/i,
+  /\btransfer\b[^.!?]{0,40}(₹|rs\.?|inr)\s?[\d,]+/i,
+  /\bdeposit\b[^.!?]{0,40}(₹|rs\.?|inr)\s?[\d,]+/i,
+  /(registration|verification|security|processing|joining|training|onboarding|confirmation)\s+(fee|deposit)\s+of\s+(₹|rs\.?|inr)\s?[\d,]+/i,
+];
 
-  let score = 0;
-  const detectedRules = [];
-
-  // Phrases that explicitly deny a payment/fee requirement.
-  const paymentNegations = [
-    "no application fee",
-    "no registration fee",
-    "no processing fee",
-    "no joining fee",
-    "no training fee",
-    "no security deposit",
-    "no security fee",
-    "no payment required",
-    "no upfront payment",
-    "no upfront fee",
-    "does not require payment",
-    "doesn't require payment",
-    "does not require a payment",
-    "doesn't require a payment",
-    "there is no fee",
-    "there are no fees",
-    "no fee is required",
-    "no fees are required",
-    "without any fee",
-    "without a fee",
-    "without payment",
-  ];
-
-  scamRules.forEach((rule) => {
-    let matchedKeyword = rule.keywords.some((keyword) =>
-      normalizedText.includes(keyword)
+function detectPaymentRequest(sentences) {
+  for (const sentence of sentences) {
+    const lower = sentence.toLowerCase();
+    const isNegated = PAYMENT_NEGATION_PHRASES.some((phrase) =>
+      lower.includes(phrase)
     );
+    if (isNegated) continue; // this sentence explicitly says NO fee — skip it
 
-    // Prevent the payment rule from triggering when the posting
-    // explicitly says that no payment or fee is required.
-    if (rule.name === "Upfront payment request" && matchedKeyword) {
-      const hasPaymentNegation = paymentNegations.some((phrase) =>
-        normalizedText.includes(phrase)
-      );
-
-      if (hasPaymentNegation) {
-        matchedKeyword = false;
-      }
+    const matched = PAYMENT_TRIGGER_REGEXES.some((rx) => rx.test(sentence));
+    if (matched) {
+      return { matched: true, evidence: sentence };
     }
+  }
+  return { matched: false, evidence: "" };
+}
 
-    if (matchedKeyword) {
-      score += rule.points;
+// ---- 2. Sensitive information request (with negation awareness) ----
+const SENSITIVE_KEYWORDS = [
+  "otp",
+  "aadhaar",
+  "aadhar",
+  "pan card",
+  "pan number",
+  "cvv",
+  "bank details",
+  "bank account",
+  "account number",
+  "debit card",
+  "credit card",
+  "atm pin",
+  "net banking",
+  "ifsc code",
+  "upi pin",
+];
 
-      detectedRules.push({
-        name: rule.name,
-        severity: rule.severity,
-        explanation: rule.explanation,
-      });
+const SENSITIVE_NEGATION_PHRASES = [
+  "never ask",
+  "do not ask",
+  "don't ask",
+  "will not ask",
+  "won't ask",
+  "not required to share",
+  "should not share",
+  "never share",
+  "never request",
+  "we do not require",
+  "we do not ask",
+];
+
+function detectSensitiveInfo(sentences) {
+  for (const sentence of sentences) {
+    const lower = sentence.toLowerCase();
+    const isNegated = SENSITIVE_NEGATION_PHRASES.some((phrase) =>
+      lower.includes(phrase)
+    );
+    if (isNegated) continue;
+
+    const matched = SENSITIVE_KEYWORDS.some((k) => lower.includes(k));
+    if (matched) {
+      return { matched: true, evidence: sentence };
     }
+  }
+  return { matched: false, evidence: "" };
+}
+
+// ---- 3. Unrealistic earning claims ----
+const EARNING_REGEXES = [
+  /(₹|rs\.?|inr)\s?[\d,]+[^.!?]{0,20}per\s?(month|week|day)/i,
+  /\bearn\b[^.!?]{0,40}(₹|rs\.?|inr)\s?[\d,]+/i,
+  /\beasy money\b/i,
+];
+
+function detectEarningClaims(sentences) {
+  for (const sentence of sentences) {
+    const matched = EARNING_REGEXES.some((rx) => rx.test(sentence));
+    if (matched) return { matched: true, evidence: sentence };
+  }
+  return { matched: false, evidence: "" };
+}
+
+// ---- 4. Guaranteed employment ----
+const GUARANTEED_REGEXES = [
+  /\bguaranteed\b[^.!?]{0,30}(job|employment|position|salary|income|selection|placement|offer)/i,
+  /\b(100%\s*)?job\s*guarantee\b/i,
+];
+
+function detectGuaranteedEmployment(sentences) {
+  for (const sentence of sentences) {
+    const matched = GUARANTEED_REGEXES.some((rx) => rx.test(sentence));
+    if (matched) return { matched: true, evidence: sentence };
+  }
+  return { matched: false, evidence: "" };
+}
+
+// ---- 5. Urgency or pressure ----
+const URGENCY_PHRASES = [
+  "apply immediately",
+  "join immediately",
+  "act now",
+  "hurry up",
+  "offer expires today",
+  "expires today",
+  "limited positions",
+  "limited time",
+  "limited slots",
+  "urgent requirement",
+  "apply now",
+  "only few hours",
+  "last chance",
+];
+
+function detectUrgency(sentences) {
+  for (const sentence of sentences) {
+    const lower = sentence.toLowerCase();
+    const matched = URGENCY_PHRASES.some((p) => lower.includes(p));
+    if (matched) return { matched: true, evidence: sentence };
+  }
+  return { matched: false, evidence: "" };
+}
+
+// ---- 6. Suspicious recruitment channels ----
+const CHANNEL_WORDS = ["telegram", "whatsapp"];
+const CHANNEL_PROXIMITY_WORDS = [
+  "contact",
+  "apply",
+  "through",
+  "only",
+  "message",
+  "chat",
+  "recruiter",
+  "send",
+  "reach",
+  "join",
+];
+
+function detectSuspiciousChannel(sentences) {
+  for (const sentence of sentences) {
+    const lower = sentence.toLowerCase();
+    const hasChannel = CHANNEL_WORDS.some((w) => lower.includes(w));
+    const hasProximity = CHANNEL_PROXIMITY_WORDS.some((w) => lower.includes(w));
+    if (hasChannel && hasProximity) {
+      return { matched: true, evidence: sentence };
+    }
+  }
+  return { matched: false, evidence: "" };
+}
+
+// ---- 7. Unusual recruitment process ----
+const UNUSUAL_PROCESS_PHRASES = [
+  "no interview required",
+  "no interview needed",
+  "without any interview",
+  "instant hiring",
+  "instant selection",
+  "hired without interview",
+  "no assessment required",
+];
+
+function detectUnusualProcess(sentences) {
+  for (const sentence of sentences) {
+    const lower = sentence.toLowerCase();
+    const phraseMatch = UNUSUAL_PROCESS_PHRASES.some((p) => lower.includes(p));
+    const regexMatch = /\bno\s+interview\b/i.test(sentence);
+    if (phraseMatch || regexMatch) {
+      return { matched: true, evidence: sentence };
+    }
+  }
+  return { matched: false, evidence: "" };
+}
+
+// ---- 8. Suspicious contact information ----
+const CONTACT_PROXIMITY_WORDS = ["contact", "call", "whatsapp", "reach", "number"];
+
+function detectSuspiciousContact(sentences) {
+  for (const sentence of sentences) {
+    const lower = sentence.toLowerCase();
+    const hasRawNumber = /\b\d{10}\b/.test(sentence);
+    const hasProximity = CONTACT_PROXIMITY_WORDS.some((w) => lower.includes(w));
+    if (hasRawNumber && hasProximity) {
+      return { matched: true, evidence: sentence };
+    }
+  }
+  return { matched: false, evidence: "" };
+}
+
+// =====================================================
+// DEFAULT SAFETY RECOMMENDATIONS PER FLAG
+// =====================================================
+const DEFAULT_RECOMMENDATIONS = {
+  payment:
+    "Never pay money — a genuine employer does not ask candidates to pay fees, deposits, or refundable amounts.",
+  sensitive:
+    "Do not share OTPs, bank details, Aadhaar, PAN, or card details with unknown recruiters.",
+  earning:
+    "Be cautious of jobs promising unusually high pay for little or no experience.",
+  guaranteed:
+    "No legitimate employer can guarantee a job or salary without an interview or assessment.",
+  urgency:
+    "Take your time — scammers create false urgency to pressure quick decisions.",
+  channel:
+    "Be cautious if recruitment happens only through personal messaging apps like Telegram or WhatsApp instead of official company channels.",
+  process:
+    "A proper hiring process usually includes an interview or assessment — be cautious of postings that skip this entirely.",
+  contact:
+    "Verify recruiter contact details against the company's official website or official HR email.",
+};
+
+const GENERAL_RECOMMENDATION =
+  "Always verify the company's official website and reach out through official channels before proceeding.";
+
+// =====================================================
+// RULE ENGINE — MAIN FUNCTION
+// =====================================================
+function runRuleEngine(text) {
+  const sentences = splitIntoSentences(text);
+  const flags = [];
+  let score = 0;
+
+  const payment = detectPaymentRequest(sentences);
+  if (payment.matched) {
+    score += 30;
+    flags.push({
+      id: "payment",
+      title: "Upfront payment request",
+      severity: "high",
+      points: 30,
+      explanation:
+        "The posting asks the candidate to pay money (a fee, deposit, or payment) before or during recruitment. Legitimate employers do not charge candidates.",
+      evidence: payment.evidence,
+    });
+  }
+
+  const sensitive = detectSensitiveInfo(sentences);
+  if (sensitive.matched) {
+    score += 25;
+    flags.push({
+      id: "sensitive",
+      title: "Sensitive information request",
+      severity: "high",
+      points: 25,
+      explanation:
+        "The posting asks for sensitive personal or financial information such as OTP, Aadhaar, PAN, or bank details.",
+      evidence: sensitive.evidence,
+    });
+  }
+
+  const earning = detectEarningClaims(sentences);
+  if (earning.matched) {
+    score += 15;
+    flags.push({
+      id: "earning",
+      title: "Unrealistic earning claims",
+      severity: "medium",
+      points: 15,
+      explanation:
+        "The posting makes an earning claim that sounds unusually high or easy for the described role.",
+      evidence: earning.evidence,
+    });
+  }
+
+  const guaranteed = detectGuaranteedEmployment(sentences);
+  if (guaranteed.matched) {
+    score += 15;
+    flags.push({
+      id: "guaranteed",
+      title: "Guaranteed employment",
+      severity: "medium",
+      points: 15,
+      explanation:
+        "The posting guarantees a job, position, or salary, which is unusual for a legitimate hiring process.",
+      evidence: guaranteed.evidence,
+    });
+  }
+
+  const urgency = detectUrgency(sentences);
+  if (urgency.matched) {
+    score += 10;
+    flags.push({
+      id: "urgency",
+      title: "Urgency or pressure",
+      severity: "medium",
+      points: 10,
+      explanation:
+        "The posting uses urgent or pressuring language to push the candidate into a quick decision.",
+      evidence: urgency.evidence,
+    });
+  }
+
+  const channel = detectSuspiciousChannel(sentences);
+  if (channel.matched) {
+    score += 10;
+    flags.push({
+      id: "channel",
+      title: "Suspicious recruitment channel",
+      severity: "medium",
+      points: 10,
+      explanation:
+        "The posting directs candidates to informal messaging apps like Telegram or WhatsApp instead of official company channels.",
+      evidence: channel.evidence,
+    });
+  }
+
+  const process_ = detectUnusualProcess(sentences);
+  if (process_.matched) {
+    score += 15;
+    flags.push({
+      id: "process",
+      title: "Unusual recruitment process",
+      severity: "medium",
+      points: 15,
+      explanation:
+        "The posting skips standard hiring steps such as an interview or assessment.",
+      evidence: process_.evidence,
+    });
+  }
+
+  const contact = detectSuspiciousContact(sentences);
+  if (contact.matched) {
+    score += 10;
+    flags.push({
+      id: "contact",
+      title: "Suspicious contact information",
+      severity: "low",
+      points: 10,
+      explanation:
+        "The posting shares a personal-looking phone number for recruitment contact instead of an official company channel.",
+      evidence: contact.evidence,
+    });
+  }
+
+  return { score: clampScore(score), flags };
+}
+
+// =====================================================
+// GEMINI BACKEND CALL
+// =====================================================
+async function callGeminiBackend(text) {
+  const response = await fetch(BACKEND_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
   });
 
-  score = Math.min(score, 100);
-
-  let level;
-
-  if (score >= 60) {
-    level = "High Risk";
-  } else if (score >= 30) {
-    level = "Suspicious";
-  } else {
-    level = "Low Risk";
-  }
-
-  return {
-    score,
-    level,
-    redFlags: detectedRules,
-  };
-}
-
-function parseGeminiAnalysis(rawAnalysis) {
-  try {
-    let cleaned = rawAnalysis.trim();
-
-    cleaned = cleaned.replace(/^```json\s*/i, "");
-    cleaned = cleaned.replace(/^```\s*/i, "");
-    cleaned = cleaned.replace(/\s*```$/i, "");
-
-    return JSON.parse(cleaned);
-  } catch (error) {
-    console.error("Could not parse Gemini response:", error);
-    return null;
-  }
-}
-
-async function analyzeWithAI(text) {
-  const response = await fetch(
-  "https://jobshield-ai-fdz9.onrender.com/analyze",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        text,
-      }),
-    }
-  );
-
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-
-    throw new Error(
-      errorData.detail || `Backend error: ${response.status}`
-    );
+    throw new Error("Backend returned an error status: " + response.status);
   }
 
   const data = await response.json();
 
-  if (!data.success) {
-    throw new Error(
-      data.message || "Gemini analysis was unsuccessful."
-    );
+  if (!data || !data.success || !data.ai_available || !data.analysis) {
+    return null; // Gemini not available — caller will fall back to rule engine
   }
 
-  const parsed = parseGeminiAnalysis(data.analysis);
+  // Gemini sometimes wraps its JSON in ```json ... ``` code fences.
+  const cleaned = String(data.analysis)
+    .replace(/```json/gi, "")
+    .replace(/```/g, "")
+    .trim();
 
-  if (!parsed) {
-    throw new Error("Gemini returned an unexpected response format.");
-  }
-
+  const parsed = JSON.parse(cleaned); // may throw — caller catches it
   return parsed;
 }
 
-function App() {
-  const [jobText, setJobText] = useState("");
-  const [result, setResult] = useState(null);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [error, setError] = useState("");
+// =====================================================
+// EXAMPLE POSTINGS (for the demo buttons)
+// =====================================================
+const EXAMPLE_GENUINE = `ABC Technologies is hiring software developers.
 
-  const analyzeJob = async () => {
+There is no application fee, no registration fee, and no payment required at any stage of recruitment.
+
+Candidates will complete an online assessment followed by a technical interview.`;
+
+const EXAMPLE_SUSPICIOUS = `Congratulations! You have been selected for a work-from-home data entry position.
+
+No application fee is required.
+
+However, you must pay a refundable verification deposit of ₹299 before onboarding.
+
+Candidates should contact our recruitment team through Telegram for the next steps.
+
+Limited positions are available. Apply immediately.`;
+
+const EXAMPLE_SCAM = `Congratulations! You have been selected for a work-from-home opportunity.
+
+You are guaranteed a salary of ₹80,000 per month.
+
+Pay a ₹999 registration fee today to confirm your position.
+
+Send your Aadhaar, PAN card, bank details and OTP to our recruiter on WhatsApp.
+
+No interview is required.
+
+This offer expires today. Join immediately.`;
+
+// =====================================================
+// MAIN APP COMPONENT
+// =====================================================
+export default function App() {
+  const [jobText, setJobText] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState(null);
+
+  function loadExample(text) {
+    setJobText(text);
+    setError("");
+    setResult(null);
+  }
+
+  async function handleAnalyze() {
+    setError("");
+    setResult(null);
+
     if (!jobText.trim()) {
-      alert("Please paste a job posting or recruitment message.");
+      setError("Please paste a job posting or recruitment message first.");
       return;
     }
 
-    setAnalyzing(true);
-    setResult(null);
-    setError("");
+    setLoading(true);
 
+    // 1. Rule engine always runs, and always succeeds.
+    const ruleResult = runRuleEngine(jobText);
+
+    // 2. Try Gemini AI, but never let it break the app.
+    let gemini = null;
     try {
-      // Always perform rule-based analysis first.
-      const ruleAnalysis = analyzeJobPosting(jobText);
-
-      let aiAnalysis = null;
-      let aiAvailable = true;
-
-      // Try Gemini analysis.
-      try {
-        aiAnalysis = await analyzeWithAI(jobText);
-      } catch (aiError) {
-        console.warn("Gemini analysis unavailable:", aiError);
-        aiAvailable = false;
-      }
-
-      /*
-       * FALLBACK MODE
-       * If Gemini is unavailable, continue with the rule-based
-       * assessment instead of showing a complete application error.
-       */
-      if (!aiAnalysis) {
-        const fallbackFlags = ruleAnalysis.redFlags.map((flag) => ({
-          name: flag.name,
-          severity: flag.severity,
-          explanation: flag.explanation,
-          source: "Rule-based",
-        }));
-
-        let fallbackRecommendation =
-          "Verify the employer independently before proceeding.";
-
-        if (ruleAnalysis.score >= 60) {
-          fallbackRecommendation =
-            "Do not make payments or share sensitive information. Verify the employer and recruitment process independently before proceeding.";
-        } else if (ruleAnalysis.score >= 30) {
-          fallbackRecommendation =
-            "Proceed with caution. Verify the employer, recruiter identity, job details, and communication channels before proceeding.";
-        } else {
-          fallbackRecommendation =
-            "No major scam indicators were detected by the rule-based analysis. Independently verify the employer before proceeding.";
-        }
-
-        setResult({
-          score: ruleAnalysis.score,
-          level: ruleAnalysis.level,
-          redFlags: fallbackFlags,
-          recommendation: fallbackRecommendation,
-          summary:
-            "Gemini AI analysis is temporarily unavailable. This assessment is based on JobShield AI's rule-based scam detection.",
-          aiScore: null,
-          ruleScore: ruleAnalysis.score,
-          aiAvailable: false,
-        });
-
-        return;
-      }
-
-      // Normal combined AI + rule-based analysis.
-      const aiScore = Number(aiAnalysis.risk_score) || 0;
-
-      const combinedScore = Math.round(
-        ruleAnalysis.score * 0.4 + aiScore * 0.6
-      );
-
-      let combinedLevel;
-
-      if (combinedScore >= 60) {
-        combinedLevel = "High Risk";
-      } else if (combinedScore >= 30) {
-        combinedLevel = "Suspicious";
-      } else {
-        combinedLevel = "Low Risk";
-      }
-
-      const combinedFlags = [];
-
-      ruleAnalysis.redFlags.forEach((flag) => {
-        combinedFlags.push({
-          name: flag.name,
-          severity: flag.severity,
-          explanation: flag.explanation,
-          source: "Rule-based",
-        });
-      });
-
-      if (Array.isArray(aiAnalysis.red_flags)) {
-        aiAnalysis.red_flags.forEach((flag) => {
-          const title = flag.title || "AI-detected warning";
-
-          const alreadyExists = combinedFlags.some(
-            (existing) =>
-              existing.name.toLowerCase() === title.toLowerCase()
-          );
-
-          if (!alreadyExists) {
-            combinedFlags.push({
-              name: title,
-              severity: flag.severity || "medium",
-              explanation:
-                flag.explanation ||
-                "Gemini identified this as a possible warning sign.",
-              source: "Gemini AI",
-            });
-          }
-        });
-      }
-
-      let finalRecommendation =
-        "Verify the employer independently before proceeding.";
-
-      if (
-        Array.isArray(aiAnalysis.safety_recommendations) &&
-        aiAnalysis.safety_recommendations.length > 0
-      ) {
-        finalRecommendation =
-          aiAnalysis.safety_recommendations.join(" ");
-      }
-
-      setResult({
-        score: combinedScore,
-        level: combinedLevel,
-        redFlags: combinedFlags,
-        recommendation: finalRecommendation,
-        summary:
-          aiAnalysis.summary ||
-          "Gemini AI analyzed this recruitment message for contextual scam indicators.",
-        aiScore,
-        ruleScore: ruleAnalysis.score,
-        aiAvailable,
-      });
-    } catch (error) {
-      console.error("Analysis failed:", error);
-
-      setError(
-        "Unable to complete the analysis. Please try again."
-      );
-    } finally {
-      setAnalyzing(false);
+      gemini = await callGeminiBackend(jobText);
+    } catch (err) {
+      gemini = null; // treat any failure as "AI unavailable"
     }
-  };
+
+    let combinedScore;
+    let aiScore = null;
+    let aiSummary = "";
+    let aiRedFlags = [];
+    let aiRecommendations = [];
+    let sources;
+
+    if (gemini) {
+      aiScore = clampScore(gemini.risk_score);
+      combinedScore = clampScore(ruleResult.score * 0.4 + aiScore * 0.6);
+      sources = "Rule Engine + Gemini AI";
+      aiSummary = gemini.summary || "";
+      aiRedFlags = Array.isArray(gemini.red_flags) ? gemini.red_flags : [];
+      aiRecommendations = Array.isArray(gemini.safety_recommendations)
+        ? gemini.safety_recommendations
+        : [];
+    } else {
+      combinedScore = clampScore(ruleResult.score);
+      sources = "Rule Engine only (Gemini AI unavailable)";
+    }
+
+    const riskLevel = getRiskLevel(combinedScore);
+
+    // Build a fallback explanation when Gemini has nothing to say.
+    let explanation = aiSummary;
+    if (!explanation) {
+      if (ruleResult.flags.length === 0) {
+        explanation =
+          "No suspicious patterns were detected by the Rule Engine. This posting looks consistent with a genuine job listing, but always verify the company independently before proceeding.";
+      } else {
+        const titles = ruleResult.flags.map((f) => f.title.toLowerCase()).join(", ");
+        explanation = `Based on rule-based analysis, this posting shows signs of: ${titles}.`;
+      }
+      if (!gemini) {
+        explanation +=
+          " Gemini AI analysis is temporarily unavailable, so this result is based solely on the Rule Engine.";
+      }
+    }
+
+    // Merge red flags from both sources, removing obvious duplicates by title.
+    const seenTitles = new Set();
+    const mergedFlags = [];
+
+    ruleResult.flags.forEach((f) => {
+      const key = f.title.trim().toLowerCase();
+      if (!seenTitles.has(key)) {
+        seenTitles.add(key);
+        mergedFlags.push({
+          title: f.title,
+          severity: f.severity,
+          explanation: f.explanation,
+          evidence: f.evidence,
+          source: "Rule Engine",
+        });
+      }
+    });
+
+    aiRedFlags.forEach((f) => {
+      if (!f || !f.title) return;
+      const key = f.title.trim().toLowerCase();
+      if (!seenTitles.has(key)) {
+        seenTitles.add(key);
+        mergedFlags.push({
+          title: f.title,
+          severity: f.severity || "medium",
+          explanation: f.explanation || "",
+          evidence: "",
+          source: "Gemini AI",
+        });
+      }
+    });
+
+    // Merge safety recommendations (rule-based defaults + AI recommendations).
+    const recSet = new Set();
+    const mergedRecommendations = [];
+
+    ruleResult.flags.forEach((f) => {
+      const rec = DEFAULT_RECOMMENDATIONS[f.id];
+      if (rec && !recSet.has(rec.toLowerCase())) {
+        recSet.add(rec.toLowerCase());
+        mergedRecommendations.push(rec);
+      }
+    });
+
+    aiRecommendations.forEach((rec) => {
+      if (rec && !recSet.has(String(rec).toLowerCase())) {
+        recSet.add(String(rec).toLowerCase());
+        mergedRecommendations.push(rec);
+      }
+    });
+
+    if (!recSet.has(GENERAL_RECOMMENDATION.toLowerCase())) {
+      mergedRecommendations.push(GENERAL_RECOMMENDATION);
+    }
+
+    setResult({
+      ruleScore: ruleResult.score,
+      aiScore,
+      aiAvailable: !!gemini,
+      combinedScore,
+      riskLevel,
+      sources,
+      explanation,
+      flags: mergedFlags,
+      recommendations: mergedRecommendations,
+    });
+
+    setLoading(false);
+  }
 
   return (
-    <div className="app">
-      <header className="navbar">
-        <div className="brand">
-          <div className="shield">🛡️</div>
-
-          <div>
-            <h1>JobShield AI</h1>
-            <p>Recruitment Scam Detection</p>
+    <div className="app-container">
+      {/* ============ SINGLE UNIFIED HEADER ============ */}
+      <nav className="site-nav">
+        <div className="nav-inner">
+          <div className="nav-brand">
+            <span className="nav-shield" aria-hidden="true"></span>
+            JobShield AI
+          </div>
+          <div className="nav-links">
+            <a href="#how-it-works" className="nav-link">
+              How It Works
+            </a>
+            <a href="#safety" className="nav-link">
+              Safety
+            </a>
           </div>
         </div>
+      </nav>
 
-        <div className="status">
-          <span className="status-dot"></span>
-          AI Protection
-        </div>
-      </header>
-
-      <main className="main-content">
-        <section className="hero">
-          <div className="badge">AI-POWERED SCAM PROTECTION</div>
-
-          <h2>
-            Detect suspicious jobs
-            <br />
-            <span>before they become scams.</span>
-          </h2>
-
-          <p className="hero-text">
-            Analyze job postings and recruitment messages for suspicious
-            patterns, financial requests, misleading claims, and other
-            recruitment scam indicators.
+      {/* ============ HERO SECTION ============ */}
+      <section className="hero-section">
+        <div className="hero-content">
+          <span className="hero-eyebrow">AI + Rule-Based Protection</span>
+          <h1 className="hero-title">Protect Your Career From Recruitment Scams</h1>
+          <p className="hero-subtitle">
+            JobShield AI analyzes job postings and recruiter messages using
+            rule-based intelligence and Gemini AI to identify suspicious
+            patterns before you share your money or sensitive information.
           </p>
-        </section>
-
-        <section className="analyzer-card">
-          <div className="card-header">
-            <div>
-              <h3>Analyze a Job Posting</h3>
-
-              <p>
-                Paste the job description or recruitment message below.
-              </p>
-            </div>
-
-            <span className="input-label">AI + RULE ANALYSIS</span>
+          <div className="hero-actions">
+            <a href="#analysis" className="hero-cta">
+              Analyze a Job Posting
+            </a>
           </div>
+        </div>
+        <div className="hero-visual" aria-hidden="true">
+          <div className="hero-shield">
+            <span className="hero-shield-check">✓</span>
+          </div>
+        </div>
+      </section>
 
+      {/* ============ FEATURE CARDS ============ */}
+      <section className="features-section">
+        <div className="features-grid">
+          <div className="feature-card">
+            <div className="feature-icon">🤖</div>
+            <h3 className="feature-title">AI-Powered Analysis</h3>
+            <p className="feature-desc">
+              Gemini AI provides contextual analysis of suspicious
+              recruitment patterns.
+            </p>
+          </div>
+          <div className="feature-card">
+            <div className="feature-icon">🔍</div>
+            <h3 className="feature-title">Explainable Detection</h3>
+            <p className="feature-desc">
+              The system identifies red flags and shows evidence from the
+              submitted message.
+            </p>
+          </div>
+          <div className="feature-card">
+            <div className="feature-icon">⚡</div>
+            <h3 className="feature-title">Instant Risk Assessment</h3>
+            <p className="feature-desc">
+              Users receive a risk score and classification quickly.
+            </p>
+          </div>
+          <div className="feature-card">
+            <div className="feature-icon">🛡️</div>
+            <h3 className="feature-title">Safety Guidance</h3>
+            <p className="feature-desc">
+              Users receive practical recommendations before sharing money or
+              sensitive information.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* ============ ANALYSIS SECTION (existing functionality) ============ */}
+      <section id="analysis" className="analysis-section content-narrow">
+        <h2 className="section-heading">Analyze a Job Posting</h2>
+        <p className="section-subtext">
+          Paste a job advertisement, recruiter message, or employment offer
+          to assess potential scam indicators.
+        </p>
+
+        <div className="example-buttons">
+          <button
+            type="button"
+            className="example-button example-genuine"
+            onClick={() => loadExample(EXAMPLE_GENUINE)}
+          >
+            🟢 Genuine Job
+          </button>
+          <button
+            type="button"
+            className="example-button example-suspicious"
+            onClick={() => loadExample(EXAMPLE_SUSPICIOUS)}
+          >
+            🟠 Suspicious Job
+          </button>
+          <button
+            type="button"
+            className="example-button example-scam"
+            onClick={() => loadExample(EXAMPLE_SCAM)}
+          >
+            🔴 Scam Example
+          </button>
+        </div>
+
+        <div className="input-section">
+          <label htmlFor="jobText" className="input-label">
+            Paste a job posting or recruitment message
+          </label>
           <textarea
+            id="jobText"
+            className="job-textarea"
+            rows={10}
             value={jobText}
             onChange={(e) => setJobText(e.target.value)}
-            placeholder="Example: Congratulations! You have been selected for a work-from-home opportunity. Earn ₹50,000 per month. Pay ₹999 registration fee to confirm your position..."
+            placeholder="Paste the full job posting or recruiter message here..."
           />
 
-          <div className="input-footer">
-            <span>{jobText.length} characters</span>
+          {error && <div className="error-banner">{error}</div>}
 
-            <button onClick={analyzeJob} disabled={analyzing}>
-              {analyzing ? "⏳ Analyzing with AI..." : "🔍 Analyze Job"}
-            </button>
-          </div>
-        </section>
+          <button
+            className="analyze-button"
+            onClick={handleAnalyze}
+            disabled={loading}
+          >
+            {loading ? "Analyzing..." : "Analyze Job Posting"}
+          </button>
+        </div>
 
-        {error && (
-          <section className="result-card">
-            <div className="no-flags">🔴 {error}</div>
-          </section>
+        {loading && (
+          <div className="loading-indicator">Analyzing job posting...</div>
         )}
 
         {result && (
-          <section className="result-card">
-            <div className="result-top">
-              <div>
-                <span className="result-label">
-                  AI + RULE ANALYSIS RESULT
-                </span>
-
-                <h3
-                  className={
-                    result.score >= 60
-                      ? "high-risk"
-                      : result.score >= 30
-                      ? "suspicious-risk"
-                      : "low-risk"
-                  }
-                >
-                  {result.level}
-                </h3>
-              </div>
-
-              <div className="score">
-                <strong>{result.score}</strong>
-                <span>/100</span>
-              </div>
+          <section className="results-section">
+            <div className={`risk-banner ${riskLevelClass(result.riskLevel)}`}>
+              <div className="risk-level-text">{result.riskLevel}</div>
+              <div className="risk-score-text">{result.combinedScore}/100</div>
             </div>
 
-            <div className="risk-bar">
-              <div
-                className="risk-progress"
-                style={{ width: `${result.score}%` }}
-              ></div>
-            </div>
-
-            {/* AI ASSESSMENT */}
-            <div className="result-section">
-              <h4>🤖 AI Assessment</h4>
-
-              <div className="no-flags">
-                {result.summary}
+            <div className="score-grid">
+              <div className="score-card">
+                <div className="score-label">Rule Engine</div>
+                <div className="score-value">{result.ruleScore}/100</div>
               </div>
-            </div>
-
-            {/* ANALYSIS BREAKDOWN */}
-            <div className="result-section">
-              <h4>📊 Analysis Breakdown</h4>
-
-              <div className="no-flags">
-                <strong>Rule-based score:</strong>{" "}
-                {result.ruleScore}/100
-                <br />
-
-                {result.aiAvailable !== false ? (
-                  <>
-                    <strong>Gemini AI risk score:</strong>{" "}
-                    {result.aiScore}/100
-                    <br />
-
-                    <strong>Combined score:</strong>{" "}
-                    {result.score}/100
-                  </>
-                ) : (
-                  <>
-                    <strong>Gemini AI:</strong>{" "}
-                    Temporarily unavailable
-                    <br />
-
-                    <strong>Final score:</strong>{" "}
-                    {result.score}/100
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* DETECTION SOURCES */}
-            <div className="result-section">
-              <h4>🔧 Detection Sources</h4>
-
-              <div className="no-flags">
-                {result.aiAvailable !== false ? (
-                  <>
-                    <p>✓ Rule-Based Scam Detection</p>
-                    <p>✓ Gemini AI Contextual Analysis</p>
-                    <p>✓ Combined Risk Assessment</p>
-                  </>
-                ) : (
-                  <>
-                    <p>✓ Rule-Based Scam Detection</p>
-                    <p>⚠ Gemini AI Temporarily Unavailable</p>
-                    <p>✓ Rule-Based Risk Assessment</p>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* WHY THIS IS RISKY */}
-            <div className="result-section">
-              <h4>💡 Why This Job Is Risky</h4>
-
-              <div className="no-flags">
-                {result.score >= 60 ? (
-                  <p>
-                    This posting contains multiple warning signs
-                    that may indicate recruitment fraud. Review the
-                    detected red flags carefully before sharing
-                    information, making payments, or continuing
-                    communication with the recruiter.
-                  </p>
-                ) : result.score >= 30 ? (
-                  <p>
-                    This posting contains some characteristics that
-                    deserve additional verification. Confirm the
-                    employer, recruiter identity, job details, and
-                    communication channels before proceeding.
-                  </p>
-                ) : (
-                  <p>
-                    No major recruitment scam indicators were
-                    identified. The posting appears relatively low
-                    risk based on the available information, but
-                    applicants should still independently verify the
-                    employer before proceeding.
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* RED FLAGS */}
-            <div className="result-section">
-              <h4>🚩 Detected Red Flags</h4>
-
-              {result.redFlags.length > 0 ? (
-                <div className="flags">
-                  {result.redFlags.map((flag, index) => (
-                    <div className="flag" key={index}>
-                      <div>
-                        <strong>
-                          {flag.severity === "high"
-                            ? "🔴"
-                            : "🟠"}{" "}
-                          {flag.name}
-                        </strong>
-
-                        <p>{flag.explanation}</p>
-
-                        <small>
-                          Source: {flag.source}
-                        </small>
-                      </div>
-                    </div>
-                  ))}
+              <div className="score-card">
+                <div className="score-label">Gemini AI</div>
+                <div className="score-value">
+                  {result.aiAvailable ? `${result.aiScore}/100` : "Unavailable"}
                 </div>
+              </div>
+              <div className="score-card">
+                <div className="score-label">Combined Score</div>
+                <div className="score-value">{result.combinedScore}/100</div>
+              </div>
+            </div>
+
+            <div className="sources-badges">
+              <span className="source-label">Detection Sources:</span>
+              <span className="source-badge">{result.sources}</span>
+            </div>
+
+            <div className="explanation-box">
+              <h3>Explanation</h3>
+              <p>{result.explanation}</p>
+            </div>
+
+            <div className="flags-section">
+              <h3>Detected Red Flags</h3>
+              {result.flags.length === 0 ? (
+                <p className="no-flags-text">No red flags detected.</p>
               ) : (
-                <div className="no-flags">
-                  🟢 No major scam indicators were detected.
-                </div>
+                result.flags.map((flag, idx) => (
+                  <div className="flag-card" key={idx}>
+                    <div className="flag-header">
+                      <span className="flag-title">{flag.title}</span>
+                      <span
+                        className={`severity-badge ${severityClass(flag.severity)}`}
+                      >
+                        {flag.severity}
+                      </span>
+                      <span className="flag-source">({flag.source})</span>
+                    </div>
+                    {flag.explanation && (
+                      <p className="flag-explanation">{flag.explanation}</p>
+                    )}
+                    {flag.evidence && (
+                      <p className="flag-evidence">
+                        Evidence detected: "{flag.evidence}"
+                      </p>
+                    )}
+                  </div>
+                ))
               )}
             </div>
 
-            {/* SAFETY */}
-            <div className="recommendation">
-              <h4>🛡️ Safety Recommendation</h4>
-
-              <p>{result.recommendation}</p>
+            <div className="recommendations-section">
+              <h3>Safety Recommendations</h3>
+              <ul>
+                {result.recommendations.map((rec, idx) => (
+                  <li key={idx} className="recommendation-item">
+                    {rec}
+                  </li>
+                ))}
+              </ul>
             </div>
-
-            <p className="disclaimer">
-              JobShield AI provides decision-support and awareness
-              guidance. It does not definitively determine whether an
-              employer or job posting is genuine.
-            </p>
           </section>
         )}
+      </section>
 
-        <section className="how-it-works">
-          <h3>How JobShield AI Works</h3>
-
-          <div className="steps">
-            <div className="step">
-              <div className="step-number">01</div>
-              <h4>Analyze</h4>
-              <p>
-                Submit a job posting or recruitment message.
-              </p>
-            </div>
-
-            <div className="step">
-              <div className="step-number">02</div>
-              <h4>Detect</h4>
-              <p>
-                Combine rule-based detection with Gemini AI
-                analysis.
-              </p>
-            </div>
-
-            <div className="step">
-              <div className="step-number">03</div>
-              <h4>Explain</h4>
-              <p>
-                Identify suspicious patterns and explain why they
-                matter.
-              </p>
-            </div>
-
-            <div className="step">
-              <div className="step-number">04</div>
-              <h4>Protect</h4>
-              <p>
-                Receive practical safety recommendations before
-                proceeding.
-              </p>
-            </div>
+      {/* ============ HOW JOBSHIELD AI WORKS ============ */}
+      <section id="how-it-works" className="how-it-works-section content-narrow">
+        <h3>How JobShield AI Works</h3>
+        <div className="how-it-works-grid">
+          <div className="step-card">
+            <div className="step-number">01</div>
+            <h4 className="step-title">Analyze</h4>
+            <p className="step-desc">
+              Submit a job posting or recruiter message.
+            </p>
           </div>
-        </section>
-      </main>
+          <div className="step-card">
+            <div className="step-number">02</div>
+            <h4 className="step-title">Detect</h4>
+            <p className="step-desc">
+              Rule Engine (40% weight) identifies known scam patterns such as
+              upfront payments, sensitive-info requests, and urgency tactics.
+            </p>
+          </div>
+          <div className="step-card">
+            <div className="step-number">03</div>
+            <h4 className="step-title">Understand</h4>
+            <p className="step-desc">
+              Gemini AI (60% weight) provides contextual analysis beyond
+              simple keyword matching.
+            </p>
+          </div>
+          <div className="step-card">
+            <div className="step-number">04</div>
+            <h4 className="step-title">Protect</h4>
+            <p className="step-desc">
+              Receive a combined risk assessment and safety guidance. If
+              Gemini is unavailable, the Rule Engine result is used on its
+              own.
+            </p>
+          </div>
+        </div>
+      </section>
 
-      <footer>
-        <strong>JobShield AI</strong>
-        <span>AI-powered recruitment scam awareness</span>
+      {/* ============ TRUST / SAFETY SECTION ============ */}
+      <section id="safety" className="trust-section content-narrow">
+        <h3 className="section-heading">Stay Safe While Job Hunting</h3>
+        <div className="safety-tips-grid">
+          <div className="safety-tip">🛡️ Don't pay upfront fees</div>
+          <div className="safety-tip">🔐 Never share OTPs</div>
+          <div className="safety-tip">🌐 Verify the official company website</div>
+          <div className="safety-tip">📧 Verify recruiter email/domain</div>
+          <div className="safety-tip">⚠️ Avoid unverified messaging channels</div>
+        </div>
+        <p className="trust-disclaimer">
+          JobShield AI provides decision-support and awareness guidance. It
+          does not definitively determine whether an employer or job posting
+          is genuine.
+        </p>
+      </section>
+
+      {/* ============ FOOTER ============ */}
+      <footer className="site-footer">
+        <div className="footer-brand">JobShield AI</div>
+        <div className="footer-tagline">AI-Powered Recruitment Scam Detection</div>
+        <div className="footer-note">Built for safer digital recruitment.</div>
       </footer>
     </div>
   );
 }
-
-export default App;
