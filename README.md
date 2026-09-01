@@ -516,6 +516,12 @@ https://github.com/saisanthanalakshmi007/JobShield-AI
 
 The deployed frontend connects to the deployed FastAPI backend for recruitment scam analysis.
 
+**🎥 Project Showcase Video:**
+
+https://youtu.be/dA_-aRM1Tfo
+
+The video demonstrates the working JobShield AI prototype, including recruitment scam analysis, risk assessment, explainable red-flag detection, and safety recommendations.
+
 ---
 
 # 🔐 Security & Responsible Data Handling
